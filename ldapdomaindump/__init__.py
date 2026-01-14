@@ -152,6 +152,8 @@ class domainDumpConfig():
         self.minimal = False #Only query minimal list of attributes
         self.ldap_channel_binding = False #Use LDAP channel binding for authentication
 
+        self.get_only = None #Only get the specified object type
+
 #Domaindumper main class
 class domainDumper():
     def __init__(self, server, connection, config, root=None):
@@ -408,21 +410,40 @@ class domainDumper():
 
     #Main function
     def domainDump(self):
-        self.users = self.getAllUsers()
-        self.computers = self.getAllComputers()
-        self.groups = self.getAllGroups()
+        if self.config.get_only is None or 'domain_users' in self.config.get_only or 'domain_users_by_group' in self.config.get_only:
+            self.users = self.getAllUsers()
+
+        if self.config.get_only is None or 'domain_computers' in self.config.get_only or 'domain_computers_by_os' in self.config.get_only:
+            self.computers = self.getAllComputers()
+
+        if self.config.get_only is None or 'domain_groups' in self.config.get_only or 'domain_users_by_group' in self.config.get_only:
+            self.groups = self.getAllGroups()
+
         if self.config.lookuphostnames:
             self.lookupComputerDnsNames()
-        self.policy = self.getDomainPolicy()
-        self.trusts = self.getTrusts()
+
+        if self.config.get_only is None or 'domain_policy' in self.config.get_only:
+            self.policy = self.getDomainPolicy()
+
+        if self.config.get_only is None or 'domain_trusts' in self.config.get_only:
+            self.trusts = self.getTrusts()
+
         rw = reportWriter(self.config)
-        rw.generateUsersReport(self)
-        rw.generateGroupsReport(self)
-        rw.generateComputersReport(self)
-        rw.generatePolicyReport(self)
-        rw.generateTrustsReport(self)
-        rw.generateComputersByOsReport(self)
-        rw.generateUsersByGroupReport(self)
+
+        if self.users is not None:
+            rw.generateUsersReport(self)
+        if self.groups is not None:
+            rw.generateGroupsReport(self)
+        if self.computers is not None:
+            rw.generateComputersReport(self)
+        if self.policy is not None:
+            rw.generatePolicyReport(self)
+        if self.trusts is not None:
+            rw.generateTrustsReport(self)
+        if self.computers is not None and (self.config.get_only is None or 'domain_computers_by_os' in self.config.get_only):
+            rw.generateComputersByOsReport(self)
+        if self.users is not None and self.groups is not None and (self.config.get_only is None or 'domain_users_by_group' in self.config.get_only):
+            rw.generateUsersByGroupReport(self)
 
 class reportWriter():
     def __init__(self, config):
@@ -893,6 +914,10 @@ def main():
     miscgroup.add_argument("-n", "--dns-server", help="Use custom DNS resolver instead of system DNS (try a domain controller IP)")
     miscgroup.add_argument("-m", "--minimal", action='store_true', default=False, help="Only query minimal set of attributes to limit memmory usage")
     miscgroup.add_argument("--ldap-channel-binding", action='store_true', default=False, help="Use LDAP channel binding (requires ldap3 >= 2.10)")
+    miscgroup.add_argument('-go', '--get-only', nargs='+',
+        choices=['domain_computers', 'domain_computers_by_os', 'domain_groups', 'domain_policy', 'domain_trusts', 'domain_users', 'domain_users_by_group'],
+        help='List of data to dump (for example: --get-only domain_policy domain_trusts)', default=None
+    )
 
     args = parser.parse_args()
     #Create default config
@@ -959,6 +984,10 @@ def main():
     else:
         s = Server(args.host, get_info=ALL)
         c = Connection(s, user=args.user, password=args.password, authentication=authentication)
+
+    if args.get_only:
+        log_info('Getting only: %s' % ', '.join(args.get_only))
+        cnf.get_only = args.get_only
 
     log_info('Binding to host')
     # perform the Bind operation
